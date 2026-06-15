@@ -52,7 +52,10 @@ class PendingPlaylistTrack(Pending):
             logger.error(f"Could not stream track {self.id}: {e}")
             return None
 
-        album = AlbumMetadata.from_track_resp(resp, self.client.source)
+        requested_quality = self.config.session.get_source(self.client.source).quality
+        album = AlbumMetadata.from_track_resp(
+            resp, self.client.source, requested_quality
+        )
         if album is None:
             logger.error(
                 f"Track ({self.id}) not available for stream on {self.client.source}",

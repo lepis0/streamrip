@@ -280,12 +280,19 @@ class AlbumMetadata:
         )
 
     @classmethod
-    def from_tidal(cls, resp) -> AlbumMetadata | None:
+    def from_tidal(
+        cls, resp, requested_quality: int | None = None
+    ) -> AlbumMetadata | None:
         """
 
         Args:
         ----
             resp: API response containing album metadata.
+            requested_quality: The quality level configured for Tidal
+                downloads. Used to determine the actual bit depth/container
+                that will be downloaded, since Tidal serves tracks at the
+                requested quality (when available) regardless of the
+                album's catalog `audioQuality` tag.
 
         Returns: AlbumMetadata instance if the album is streamable, otherwise None.
 
@@ -322,10 +329,16 @@ class AlbumMetadata:
             "HIGH": 1,
             "LOSSLESS": 2,
             "HI_RES": 3,
+            "HI_RES_LOSSLESS": 3,
         }
 
         tidal_quality = resp.get("audioQuality", "LOW")
         quality = quality_map[tidal_quality]
+        # If FLAC is available at all, Tidal serves the requested quality
+        # (when available) for every track, regardless of the album's
+        # catalog `audioQuality` tag.
+        if quality >= 2 and requested_quality is not None:
+            quality = requested_quality
         if quality >= 2:
             sampling_rate = 44100
             if quality == 3:
@@ -371,7 +384,9 @@ class AlbumMetadata:
         )
 
     @classmethod
-    def from_tidal_playlist_track_resp(cls, resp: dict) -> AlbumMetadata | None:
+    def from_tidal_playlist_track_resp(
+        cls, resp: dict, requested_quality: int | None = None
+    ) -> AlbumMetadata | None:
         album_resp = resp["album"]
         streamable = resp.get("allowStreaming", False)
         if not streamable:
@@ -409,10 +424,16 @@ class AlbumMetadata:
             "HIGH": 1,
             "LOSSLESS": 2,
             "HI_RES": 3,
+            "HI_RES_LOSSLESS": 3,
         }
 
         tidal_quality = resp.get("audioQuality", "LOW")
         quality = quality_map[tidal_quality]
+        # If FLAC is available at all, Tidal serves the requested quality
+        # (when available) for every track, regardless of the catalog
+        # `audioQuality` tag.
+        if quality >= 2 and requested_quality is not None:
+            quality = requested_quality
         if quality >= 2:
             sampling_rate = 44100
             if quality == 3:
@@ -500,11 +521,13 @@ class AlbumMetadata:
         )
 
     @classmethod
-    def from_track_resp(cls, resp: dict, source: str) -> AlbumMetadata | None:
+    def from_track_resp(
+        cls, resp: dict, source: str, requested_quality: int | None = None
+    ) -> AlbumMetadata | None:
         if source == "qobuz":
             return cls.from_qobuz(resp["album"])
         if source == "tidal":
-            return cls.from_tidal_playlist_track_resp(resp)
+            return cls.from_tidal_playlist_track_resp(resp, requested_quality)
         if source == "soundcloud":
             return cls.from_soundcloud(resp)
         if source == "deezer":
@@ -514,11 +537,13 @@ class AlbumMetadata:
         raise Exception("Invalid source")
 
     @classmethod
-    def from_album_resp(cls, resp: dict, source: str) -> AlbumMetadata | None:
+    def from_album_resp(
+        cls, resp: dict, source: str, requested_quality: int | None = None
+    ) -> AlbumMetadata | None:
         if source == "qobuz":
             return cls.from_qobuz(resp)
         if source == "tidal":
-            return cls.from_tidal(resp)
+            return cls.from_tidal(resp, requested_quality)
         if source == "soundcloud":
             return cls.from_soundcloud(resp)
         if source == "deezer":

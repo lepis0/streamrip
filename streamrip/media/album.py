@@ -68,8 +68,11 @@ class PendingAlbum(Pending):
             )
             return None
 
+        requested_quality = self.config.session.get_source(self.client.source).quality
         try:
-            meta = AlbumMetadata.from_album_resp(resp, self.client.source)
+            meta = AlbumMetadata.from_album_resp(
+                resp, self.client.source, requested_quality
+            )
         except Exception as e:
             logger.error(f"Error building album metadata for {id=}: {e}")
             return None

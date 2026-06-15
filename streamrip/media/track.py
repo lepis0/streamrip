@@ -197,8 +197,11 @@ class PendingSingle(Pending):
             logger.error(f"Error fetching track {self.id}: {e}")
             return None
         # Patch for soundcloud
+        requested_quality = self.config.session.get_source(self.client.source).quality
         try:
-            album = AlbumMetadata.from_track_resp(resp, self.client.source)
+            album = AlbumMetadata.from_track_resp(
+                resp, self.client.source, requested_quality
+            )
         except Exception as e:
             logger.error(f"Error building album metadata for track {id=}: {e}")
             return None
