@@ -336,10 +336,13 @@ class AlbumMetadata:
             sampling_rate = None
             bit_depth = None
 
+        # LOSSLESS/HI_RES are downloaded as FLAC; LOW/HIGH as AAC in an MP4 container
+        container = "FLAC" if quality >= 2 else "MP4"
+
         info = AlbumInfo(
             id=item_id,
             quality=quality,
-            container="MP4",
+            container=container,
             label=None,
             explicit=explicit,
             sampling_rate=sampling_rate,
@@ -420,10 +423,13 @@ class AlbumMetadata:
             sampling_rate = None
             bit_depth = None
 
+        # LOSSLESS/HI_RES are downloaded as FLAC; LOW/HIGH as AAC in an MP4 container
+        container = "FLAC" if quality >= 2 else "MP4"
+
         info = AlbumInfo(
             id=item_id,
             quality=quality,
-            container="MP4",
+            container=container,
             label=None,
             explicit=explicit,
             sampling_rate=sampling_rate,
