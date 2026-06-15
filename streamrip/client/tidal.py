@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+import xml.etree.ElementTree as ET
 from json import JSONDecodeError
 
 import aiohttp
@@ -11,7 +12,7 @@ import aiohttp
 from ..config import Config
 from ..exceptions import NonStreamableError
 from .client import Client
-from .downloadable import TidalDownloadable
+from .downloadable import TidalDownloadable, TidalMpdDownloadable
 
 logger = logging.getLogger("streamrip")
 
@@ -33,6 +34,50 @@ QUALITY_MAP = {
     2: "LOSSLESS",  # CD Quality
     3: "HI_RES",  # MQA
 }
+
+MPD_NS = {"mpd": "urn:mpeg:dash:schema:mpd:2011"}
+SEGMENT_NUMBER_RE = re.compile(r"\$Number(%0(\d+)d)?\$")
+
+
+def _format_segment_template(template: str, number: int) -> str:
+    def repl(m: re.Match) -> str:
+        if m.group(2):
+            return str(number).zfill(int(m.group(2)))
+        return str(number)
+
+    return SEGMENT_NUMBER_RE.sub(repl, template)
+
+
+def _parse_dash_manifest(manifest_xml: bytes) -> tuple[list[str], str]:
+    """Parse a Tidal DASH-MPD manifest into the list of segment URLs (the
+    initialization segment followed by the media segments, in order) and
+    the codec of the audio representation.
+    """
+    root = ET.fromstring(manifest_xml)
+    representation = root.find(".//mpd:Representation", MPD_NS)
+    if representation is None:
+        raise NonStreamableError("Tidal: no representation found in DASH manifest")
+
+    codec = representation.get("codecs", "flac")
+    seg_template = representation.find("mpd:SegmentTemplate", MPD_NS)
+    if seg_template is None:
+        raise NonStreamableError("Tidal: no SegmentTemplate found in DASH manifest")
+
+    init_url = seg_template.get("initialization")
+    media_template = seg_template.get("media")
+    start_number = int(seg_template.get("startNumber", "1"))
+
+    segment_count = 0
+    timeline = seg_template.find("mpd:SegmentTimeline", MPD_NS)
+    if timeline is not None:
+        for s in timeline.findall("mpd:S", MPD_NS):
+            segment_count += int(s.get("r", "0")) + 1
+
+    urls = [init_url] + [
+        _format_segment_template(media_template, start_number + i)
+        for i in range(segment_count)
+    ]
+    return urls, codec
 
 
 class TidalClient(Client):
@@ -162,9 +207,16 @@ class TidalClient(Client):
         )
         logger.debug(resp)
         try:
-            manifest = json.loads(base64.b64decode(resp["manifest"]).decode("utf-8"))
+            manifest_bytes = base64.b64decode(resp["manifest"])
         except KeyError:
             raise Exception(resp["userMessage"])
+
+        if resp.get("manifestMimeType") == "application/dash+xml":
+            urls, codec = _parse_dash_manifest(manifest_bytes)
+            return TidalMpdDownloadable(self.session, segment_urls=urls, codec=codec)
+
+        try:
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
         except JSONDecodeError:
             logger.warning(
                 f"Failed to get manifest for {track_id}. Retrying with lower quality."

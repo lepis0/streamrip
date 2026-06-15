@@ -306,6 +306,88 @@ class TidalDownloadable(Downloadable):
             return dec_bytes
 
 
+class TidalMpdDownloadable(Downloadable):
+    """Downloads a Tidal track that is served as a DASH-MPD manifest of
+    fragmented MP4 segments (used for Hi-Res/Lossless FLAC).
+
+    The segments are concatenated into a single fMP4 file, which is then
+    remuxed into a native FLAC file using FFmpeg (or kept as .m4a for
+    non-FLAC codecs).
+    """
+
+    def __init__(self, session: aiohttp.ClientSession, segment_urls: list[str], codec: str):
+        self.session = session
+        self.source = "tidal"
+        self.segment_urls = segment_urls
+        codec = codec.lower()
+        self.extension = "flac" if codec == "flac" else "m4a"
+        self._size = None
+
+    async def _download(self, path: str, callback):
+        semaphore = asyncio.Semaphore(16)
+
+        async def fetch(url: str) -> bytes:
+            async with semaphore:
+                async with self.session.get(url) as resp:
+                    resp.raise_for_status()
+                    data = await resp.read()
+                    callback(len(data))
+                    return data
+
+        segments = await asyncio.gather(*(fetch(url) for url in self.segment_urls))
+
+        tmp_path = generate_temp_path(self.segment_urls[0])
+        try:
+            async with aiofiles.open(tmp_path, "wb") as f:
+                for data in segments:
+                    await f.write(data)
+
+            if self.extension == "flac":
+                await self._remux_to_flac(tmp_path, path)
+            else:
+                shutil.move(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    @staticmethod
+    async def _remux_to_flac(in_path: str, out_path: str):
+        if shutil.which("ffmpeg") is None:
+            raise Exception(
+                "FFmpeg must be installed to download Tidal Hi-Res/Lossless FLAC tracks."
+            )
+
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-y",
+            "-i",
+            in_path,
+            "-map",
+            "0:a",
+            "-c:a",
+            "copy",
+            "-loglevel",
+            "warning",
+            out_path,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise Exception(f"FFmpeg failed to remux Tidal track: {stderr.decode()}")
+
+    async def size(self) -> int:
+        if self._size is not None:
+            return self._size
+
+        total = 0
+        for url in self.segment_urls:
+            async with self.session.head(url, allow_redirects=True) as response:
+                response.raise_for_status()
+                total += int(response.headers.get("Content-Length", 0))
+        self._size = total
+        return self._size
+
+
 class SoundcloudDownloadable(Downloadable):
     def __init__(self, session, info: dict):
         self.session = session
