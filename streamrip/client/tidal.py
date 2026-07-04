@@ -19,9 +19,9 @@ logger = logging.getLogger("streamrip")
 BASE = "https://api.tidalhifi.com/v1"
 AUTH_URL = "https://auth.tidal.com/v1/oauth2"
 
-CLIENT_ID = base64.b64decode("ZlgySnhkbW50WldLMGl4VA==").decode("iso-8859-1")
+CLIENT_ID = base64.b64decode("NE4zbjZRMXg5NUxMNUs3cA==").decode("iso-8859-1")
 CLIENT_SECRET = base64.b64decode(
-    "MU5tNUFmREFqeHJnSkZKYktOV0xlQXlLR1ZHbUlOdVhQUExIVlhBdnhBZz0=",
+    "b0tPWGZKVzM3MWNYNnhhWjBQeWhnR05CZE5MbEJaZDRBS0tZb3VnTWppaz0=",
 ).decode("iso-8859-1")
 AUTH = aiohttp.BasicAuth(login=CLIENT_ID, password=CLIENT_SECRET)
 STREAM_URL_REGEX = re.compile(
@@ -210,6 +210,15 @@ class TidalClient(Client):
             manifest_bytes = base64.b64decode(resp["manifest"])
         except KeyError:
             raise Exception(resp["userMessage"])
+
+        _RECEIVED_LEVEL = {"LOW": 0, "HIGH": 1, "LOSSLESS": 2, "HI_RES": 3, "HI_RES_LOSSLESS": 4}
+        received_quality = resp.get("audioQuality", "")
+        if _RECEIVED_LEVEL.get(received_quality, 99) < _RECEIVED_LEVEL.get(QUALITY_MAP[quality], 0) and quality > 0:
+            logger.warning(
+                f"Requested {QUALITY_MAP[quality]} but received {received_quality} "
+                f"for track {track_id}. Retrying with lower quality."
+            )
+            return await self.get_downloadable(track_id, quality - 1)
 
         if resp.get("manifestMimeType") == "application/dash+xml":
             urls, codec = _parse_dash_manifest(manifest_bytes)
